@@ -10,13 +10,13 @@ Codes optimised for high resolution circumpolar simulations, using grids and for
   <br><br>
 - Simulation <br>
   parcel_run.py
-  <br>
+  <br><br>
   Configuration at the start of the file, including release sites, simulation parameters, physics parameters (wind and ice)
   Constant diffusivity (backup diffusivity) can be set if Kh is not available
   <br><br>
 - Post-simulation analysis optimised for Antarctic ciecumpolar simulation
   parcel_ana.py
-  <br>
+  <br><br>
   - Analysis includes regional connectivity analysis
   - Seasonal patterns
   - Antarctic connectivity assessment
