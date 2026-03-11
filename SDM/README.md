@@ -22,5 +22,4 @@ Contain *M. "pyrifera"*, *M. "integrifolia"* and *M. "angustifolia"*
 - Mean significant wave height not covered by Passaro et al. (2021)
 <br><br>
 ### Land mask: https://www.naturalearthdata.com/downloads/10m-physical-vectors/
-<br>
 ### Antarctic coastline: https://data.bas.ac.uk/full-record.php?id=GB/NERC/BAS/PDC/01391
