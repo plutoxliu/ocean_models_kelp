@@ -7,13 +7,13 @@ Codes optimised for high resolution circumpolar simulations, using grids and for
 <br>
 - Generate spatially-varying horizontal diffusivity from Eddy Kinetic Energy (optional) <br>
   Kh_field.py
-  <br>
+  <br><br>
 - Simulation <br>
   parcel_run.py
   <br>
   Configuration at the start of the file, including release sites, simulation parameters, physics parameters (wind and ice)
   Constant diffusivity (backup diffusivity) can be set if Kh is not available
-  <br>
+  <br><br>
 - Post-simulation analysis optimised for Antarctic ciecumpolar simulation
   parcel_ana.py
   <br>
