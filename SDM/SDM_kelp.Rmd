@@ -1,0 +1,515 @@
+---
+title: "Rafting *Macrocystis* kelp could establish in Antarctica in the future, but will be under threat in its native range"
+date: "2026-03-11"
+header-includes:
+  \usepackage{fvextra}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+---
+```{r, echo=FALSE}
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE, warning=FALSE)
+```
+The `embarcadero` and `flexsdm` packages should be installed from github. `ggplot2`, `ggthemes`, and `patchwork` are used for plotting. 
+```{r setup, message = FALSE}
+library(terra)
+library(dismo)
+library(BART)
+library(embarcadero) 
+#remotes::install_github('cjcarlson/embarcadero') 
+#install embarcadero package from github
+library(flexsdm) 
+#remotes::install_github("sjevelazco/flexsdm") 
+#install flexsdm package from github
+library(ggplot2)
+library(ggthemes)
+```
+
+Assume working in directory with all data stored in sub-folders. 
+First we need to read in the environmental data. Environmental data files will need to be downloaded from their respective original sources (see Table S1 and methods) and placed in respective folders (alternatively, update the file paths below).
+
+Already gridded data can be read in as is. 
+```{r}
+#Bio-ORACLE
+Fe <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "dfe_baseline_2000_2018_depthsurf_292d_e59b_b2bf_U1712713869592.nc"))
+PAR <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "par_mean_baseline_2000_2020_depthsurf_d018_32ef_6dde_U1712716245720.nc"))
+nitrogen <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "no3_baseline_2000_2018_depthsurf_1e7f_655b_1964_U1712715082182.nc"))
+oxy <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "o2_baseline_2000_2018_depthsurf_959d_7559_68dd_U1712713869718.nc"))
+phos <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "po4_baseline_2000_2018_depthsurf_2403_b208_4867_U1712713868439.nc"))
+pH <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "ph_baseline_2000_2018_depthsurf_e6dc_c436_6a90_U1712713870674.nc"))
+sal <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "so_baseline_2000_2019_depthsurf_a5c8_8d8a_48fb_U1712713867411.nc"))
+velocity <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010",
+"sws_baseline_2000_2019_depthsurf_43ae_926f_54a6_U1763533010266.nc"))
+sil <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010",
+"si_baseline_2000_2018_depthsurf_02c4_4b83_645a_U1763533020531.nc"))
+sea_ice <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "siconc_baseline_2000_2020_depthsurf_8953_4ae1_3da6_U1712783015198.nc"))
+sstmin <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "thetao_baseline_2000_2019_depthsurf_0abe_5ce1_0243_U1712713867357.nc"))
+sstmean <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "thetao_baseline_2000_2019_depthsurf_4e3e_1426_a71d_U1712713866424.nc"))
+sstmax <- rast(file.path("data", "env_variables", "BioOracle_v3_2000_2010", "thetao_baseline_2000_2019_depthsurf_5503_3676_2a93_U1712713866424.nc"))
+
+#WorldClim2 data to represent terrestrial vars
+wctmin <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bio_6.tif")), fact = 6, fun = mean, na.rm = TRUE)
+wctmean <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bio_1.tif")), fact = 6, fun = mean, na.rm = TRUE)
+wctmax <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bio_5.tif")), fact = 6, fun = mean, na.rm = TRUE)
+
+#Phys oceanography variables
+tidal_amplitude <- resample(rast(file.path("data", "env_variables", "ECDS0243-001-V1.0_Annual average cycle amplitude.tif")), Fe) 
+# resample to match Bio-Oracle dims
+names(tidal_amplitude) <- "tidal_amplitude" 
+#rename
+```
+
+Wave data are read in as a points vector, which is then rasterised. 
+```{r}
+wh_meansignif <- vect(read.table(file.path("data", "env_variables", "Mean Significant Wave Height.txt"), header = T), geom=c("lon", "lat")) 
+#mean signif wave height
+
+#rasterize vect data #loop focal to fill NAs with nearest neighbour
+wh_meansignif <- rasterize(wh_meansignif, Fe, field = "wave_signif") |> crop(y = Fe)
+for(i in 1:15){
+wh_meansignif <- focal(wh_meansignif, w=3, fun=mean, na.rm=TRUE, na.policy = "only") 
+}
+wh_meansignif <- mean(wh_meansignif, mask(resample(mean(rast(file.path("data", "env_variables", "WAVERYSv1_climatology_19930101_20211231.nc"), subds = "VHM0"), na.rm = TRUE), wh_meansignif), wh_meansignif, invers = TRUE), na.rm = TRUE) 
+#supplement missing data with climatology 
+
+names(wh_meansignif) <- "wave_signif"
+
+```
+Wind fetch data calculated for this study
+```{r}
+wind_fetch <- rast(file.path("data", "env_variables", "wind_fetch.tiff")) 
+```
+Stack rasters and crop to Southern Hemisphere for easier projection. 
+```{r}
+env_dat <- c(sstmin, sstmean, sstmax, wctmin, wctmean, wctmax, sea_ice, sal , pH, nitrogen, phos, Fe, oxy, PAR, sil, velocity, tidal_amplitude, wh_meansignif) |> crop(y = rast(ymax = -30, ymin = -70)) 
+names(env_dat) <- c("Present.Surface.Temperature.Lt.min", "Present.Surface.Temperature.Mean", "Present.Surface.Temperature.Lt.max", "wc2.1_30s_bio_6", "wc2.1_30s_bio_1", "wc2.1_30s_bio_5", "sea_ice", "Present.Surface.Salinity.Mean", "Present.Surface.pH.BOv2_2", "Present.Surface.Nitrate.Mean", "Present.Surface.Phosphate.Mean", "Present.Surface.Iron.Mean", "Present.Surface.Dissolved.oxygen.Mean", "Present.Surface.Par.Mean.asc", "Present.Silicate.Mean", "Present.Water.Velocity.Mean", "tidal_amplitude", "wave_signif") #rename variables
+```
+Define Antarctic projection and then reproject environmental data. 
+```{r}
+crs(env_dat)<-crs(wctmax)
+proj_ATA <- "EPSG:3031" 
+#Antarctic stereographic projection
+env_dat_proj <- c(project(env_dat, wind_fetch), wind_fetch) 
+#project env data to Antarctic stereographic and stack with fetch (which is already projected)
+```
+Modal buffer to extend data across marine/terrestrial realms to ensure it covers the intertidal. And then mask out everything except the intertidal. 
+```{r}
+for(i in 1:5){ 
+env_dat_proj <- focal(env_dat_proj, w=3, fun="modal", na.rm=TRUE, na.policy = "only") 
+#buffer data for coastal incursion
+}
+```
+Identify intertidal zone. First, read in coastal outline and crop to region of interest - uses Natural Earth world borders shapefile. Available here: https://www.naturalearthdata.com/downloads/10m-physical-vectors/
+Add a 1000 m buffer around coastline to delineate intertidal. 
+```{r}
+wrld_shp <- aggregate(buffer(makeValid(project(crop(vect(file.path("data", "ne_10m_land", "ne_10m_land.shp")), rast(ymax = -5, ymin = -60)), proj_ATA)), 0.000001))
+wrld_shp_buffer <- buffer(as.lines(wrld_shp), width = 1000) |> erase(wrld_shp)
+
+```
+Read in high-resolution Antarctic coastline (inc. ice shelf), remove ice shelf from 'intertidal' outline. Available here: https://data.bas.ac.uk/full-record.php?id=GB/NERC/BAS/PDC/01391 
+Add a 1000 m buffer around coastline to delineate intertidal.
+```{r}
+ATA_orig <- vect(file.path("data", "Coastline_high_res_polygon", "Coastline_high_res_polygon.shp"))
+ATA_highres <- aggregate(buffer(makeValid(project(simplifyGeom(ATA_orig, 1000), proj_ATA)), 0.000001))
+ATA_highres_ice <- buffer((aggregate(buffer(makeValid(project(simplifyGeom(ATA_orig[ATA_orig$surface != "land"], 1000), proj_ATA)), 0.000001))), width = 1000)
+
+ATA_highres_buffer <- buffer(as.lines(ATA_highres), width = 1000) |> erase(ATA_highres) |> erase(ATA_highres_ice)
+```
+Convert intertidal shapefiles to rasters for masking of environmental data.
+```{r}
+wrld_rst <- rasterize(wrld_shp_buffer, project(rast(ymax = -30, ymin = -80), proj_ATA, res = 5000), touches = TRUE, cover = TRUE)
+ATA_rst <- rasterize(ATA_highres_buffer, project(rast(ymax = -30, ymin = -80), proj_ATA, res = 5000), touches = TRUE, cover = TRUE)
+
+intertidal_rst <- sum(wrld_rst, ATA_rst, na.rm = TRUE) 
+# combine
+```
+Mask environmental data to only the 1000 m intertidal zone. 
+```{r}
+env_dat_msk <- mask(crop(env_dat_proj, intertidal_rst), intertidal_rst)
+```
+
+Future environmental data - as above. 
+```{r}
+#SSP2-4.5
+sal2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "so_ssp245_2020_2100_depthsurf_13cf_4c1e_ed0d_U1712712685875.nc"))
+sstmin2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "thetao_ssp245_2020_2100_depthsurf_e0aa_fa61_ba97_U1712712684760.nc"))
+sstmean2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "thetao_ssp245_2020_2100_depthsurf_f973_3101_d79e_U1712712659419.nc"))
+sstmax2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "thetao_ssp245_2020_2100_depthsurf_3361_5843_307c_U1712712685083.nc"))
+pH2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "ph_ssp245_2020_2100_depthsurf_17ad_cec4_8765_U1712712926605.nc"))
+nitrogen2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "no3_ssp245_2020_2100_depthsurf_b12a_8d63_72fa_U1712712924346.nc"))
+phos2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "po4_ssp245_2020_2100_depthsurf_afc0_a620_3c88_U1712712924346.nc"))
+Fe2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "dfe_ssp245_2020_2100_depthsurf_a70f_190e_2364_U1712712925565.nc"))
+oxy2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "o2_ssp245_2020_2100_depthsurf_726e_960f_d157_U1712712925009.nc"))
+si2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245",
+"si_ssp245_2020_2100_depthsurf_39e0_3656_c9d4_U1763528573510.nc"))
+velocity2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245",
+"sws_ssp245_2020_2100_depthsurf_9d0e_2023_34a9_U1763528563952.nc"))
+sea_ice2100_45 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP245", "siconc_ssp245_2020_2100_depthsurf_c0ea_657d_945e_U1712783595514.nc"))
+
+wctmin2100_45 <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bioc_ACCESS-CM2_ssp245_2081-2100.tif"))[[6]], fact = 6, fun = mean, na.rm = TRUE)
+wctmean2100_45 <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bioc_ACCESS-CM2_ssp245_2081-2100.tif"))[[1]], fact = 6, fun = mean, na.rm = TRUE)
+wctmax2100_45 <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bioc_ACCESS-CM2_ssp245_2081-2100.tif"))[[5]], fact = 6, fun = mean, na.rm = TRUE)
+
+env2100_45_dat <- c(sstmin2100_45, sstmean2100_45, sstmax2100_45, wctmin2100_45, wctmean2100_45, wctmax2100_45, sea_ice2100_45, sal2100_45, pH2100_45, nitrogen2100_45, phos2100_45, Fe2100_45, oxy2100_45, PAR, si2100_45, velocity2100_45, tidal_amplitude, wh_meansignif) |> crop(y = rast(ymax = -30, ymin = -80))
+
+crs(env2100_45_dat)<-crs(wctmax2100_45)
+env2100_45_dat_proj <- c(project(env2100_45_dat*1, wind_fetch), wind_fetch)
+
+for(i in 1:5){
+env2100_45_dat_proj <- focal(env2100_45_dat_proj, w=3, fun="modal", na.rm=TRUE, na.policy = "only") #buffer data for coastal incursion
+}
+env2100_45_dat_msk <- mask(crop(env2100_45_dat_proj, intertidal_rst), intertidal_rst)
+names(env2100_45_dat_msk) <- names(env_dat_msk) #match up names for model prediction
+
+
+#SSP5-8.5
+sal2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "so_ssp585_2020_2100_depthsurf_13cf_4c1e_ed0d_U1712714475254.nc"))
+sstmin2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "thetao_ssp585_2020_2100_depthsurf_e0aa_fa61_ba97_U1712714475225.nc"))
+sstmean2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "thetao_ssp585_2020_2100_depthsurf_f973_3101_d79e_U1712714474142.nc"))
+sstmax2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "thetao_ssp585_2020_2100_depthsurf_3361_5843_307c_U1712714474142.nc"))
+pH2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "ph_ssp585_2020_2100_depthsurf_17ad_cec4_8765_U1712714479117.nc"))
+nitrogen2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "no3_ssp585_2020_2100_depthsurf_b12a_8d63_72fa_U1712714476140.nc"))
+phos2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "po4_ssp585_2020_2100_depthsurf_afc0_a620_3c88_U1712714476183.nc"))
+Fe2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "dfe_ssp585_2020_2100_depthsurf_a70f_190e_2364_U1712714477210.nc"))
+oxy2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "o2_ssp585_2020_2100_depthsurf_726e_960f_d157_U1712714477790.nc"))
+si2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585",
+"si_ssp585_2020_2100_depthsurf_39e0_3656_c9d4_U1763527501397.nc"))
+velocity2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585",
+"sws_ssp585_2020_2100_depthsurf_9d0e_2023_34a9_U1763527493305.nc"))
+sea_ice2100_85 <- rast(file.path("data", "env_variables", "BioOracle_v3_2100SSP585", "siconc_ssp585_2020_2100_depthsurf_c0ea_657d_945e_U1712783622990.nc"))
+
+wctmin2100_85 <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bioc_ACCESS-CM2_ssp585_2081-2100.tif"))[[6]], fact = 6, fun = mean, na.rm = TRUE)
+wctmean2100_85 <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bioc_ACCESS-CM2_ssp585_2081-2100.tif"))[[1]], fact = 6, fun = mean, na.rm = TRUE)
+wctmax2100_85 <- aggregate(rast(file.path("data", "env_variables", "wc2.1_30s_bio", "wc2.1_30s_bioc_ACCESS-CM2_ssp585_2081-2100.tif"))[[5]], fact = 6, fun = mean, na.rm = TRUE)
+
+
+env2100_85_dat <- c(sstmin2100_85, sstmean2100_85, sstmax2100_85, wctmin2100_85, wctmean2100_85, wctmax2100_85, sea_ice2100_85, sal2100_85, pH2100_85, nitrogen2100_85, phos2100_85, Fe2100_85, oxy2100_85, PAR, si2100_85, velocity2100_85, tidal_amplitude, wh_meansignif) |> crop(y = rast(ymax = -30, ymin = -80))
+
+crs(env2100_85_dat) <- crs(wctmax2100_85)
+env2100_85_dat_proj <- c(project(env2100_85_dat*1, wind_fetch), wind_fetch)
+
+for(i in 1:5){
+env2100_85_dat_proj <- focal(env2100_85_dat_proj, w=3, fun="modal", na.rm=TRUE, na.policy = "only") 
+#buffer data for coastal incursion
+}
+env2100_85_dat_msk <- mask(crop(env2100_85_dat_proj, intertidal_rst), intertidal_rst)
+names(env2100_85_dat_msk) <- names(env_dat_msk) 
+#match up names for model prediction
+
+
+
+```
+Read in occurrence records as points vector.
+```{r}
+data<-read.csv("occ_original.csv",header = T)
+
+library(sf)
+spatial_sf <- st_as_sf(data,
+                       coords = c("longitude", "latitude"),
+                       crs = crs(wctmax))
+occ <- project(vect(spatial_sf), proj_ATA) 
+
+# --- ADD SPATIAL THINNING ---
+# Create a 9.2 km² grid (cell side = ~3033 m)
+#cell_size <- sqrt(9.2 * 1e6)  # 9.2 km² = 9.2e6 m², so ~3033 m per side
+# Create raster grid for thinning
+#thin_grid <- rast(ext(occ), resolution = cell_size, crs = crs(occ))
+# Extract cell numbers for each occurrence point
+#cell_ids <- cells(thin_grid, occ)[, "cell"]
+# Keep only one occurrence per cell (first occurrence in each cell)
+#occ <- occ[!duplicated(cell_ids), ]
+
+# --- PROJECT BACK TO GEOGRAPHIC COORDINATES (WGS84) ---
+#occ_longlat <- project(occ, "EPSG:4326")
+# Convert to data frame with longitude/latitude
+#occ_df <- as.data.frame(occ_longlat, geom = "XY")
+# Rename columns to be clear
+#colnames(occ_df)[colnames(occ_df) == "x"] <- "longitude"
+#colnames(occ_df)[colnames(occ_df) == "y"] <- "latitude"
+#write.csv(occ_df, "occ_thinned.csv", row.names = F)
+
+#combined morph occurrence records
+occ$antarctica <- 1
+```
+
+Identify and remove duplicates (i.e. occurrence points in same cell). 
+```{r}
+occ_cells <- terra::extract(env_dat_msk, occ, cells = TRUE)$cell[!duplicated(terra::extract(env_dat_msk, occ, cells = TRUE)$cell)] 
+
+```
+
+Generate pseudoabsence / background points using spatial thickening. Note the final sampling of point incorporates a degree of random sampling - to replicate the published results exactly the pseudoabsence coordinates provided in the results folder (`bg_pts_projcoords.csv`) should be used.
+
+```{r}
+part <- part_sblock(env_layer = env_dat_msk, cbind(geom(occ), data.frame(occ)), x = "x", y = "y", pr_ab = "antarctica",  min_res_mult = 3, max_res_mult = 200, num_grids = 30, min_occ = 10, n_part = 3)
+grid_env <- get_block(env_layer = env_dat_msk, best_grid = part$grid)
+
+abs_pts <- flexsdm::sample_background(cbind(geom(occ), data.frame(occ)), x = "x", y = "y", n = length(occ_cells), method = "thickening", rlayer = grid_env)
+
+abs_cells <- terra::extract(env_dat_msk, data.frame(abs_pts[,1:2]), cells = TRUE)$cell[!duplicated(terra::extract(env_dat_msk, data.frame(abs_pts[,1:2]), cells = TRUE)$cell)] 
+# remove duplicates
+```
+Extract environmental data from each presence or pseudoabsence/background cell. 
+```{r, eval=FALSE}
+occ.df <- data.frame(obs = c(rep(1, length(occ_cells)), rep(0, length(abs_cells))), terra::extract(env_dat_msk, c(occ_cells, abs_cells)))
+```
+Pull out variable names to be used in modelling. 
+```{r}
+xnames <- names(env_dat_msk)
+```
+Load modified functions to run `embarcadero` with sparse Dirichlet priors via `BART` package. Not the most efficient or optimised apprach, but it works.
+```{r}
+source(file.path("functions", "summary_lbart.R"))
+source(file.path("functions", "lbart_step.R"))
+source(file.path("functions", "lbart_variablestep.R"))
+source(file.path("functions", "lbart_varimp.R"))
+source(file.path("functions", "lbart_partial.R"))
+```
+
+Run stepwise variable reduction. `lbart.step` takes a long time to run. Published results can be read in using `readRDS` instead of running from scratch.
+```{r, eval = FALSE}
+sdm_ldart_step <- lbart.step(x.data=occ.df[,xnames], y.data=occ.df[,'obs'], quiet=TRUE, sparse = TRUE) 
+#stepwise variable reduction
+```
+```{r, echo=FALSE}
+sdm_ldart_step <- readRDS(file.path("results", "sdm_ldart_step.RDS"))
+```
+Summarise model fit. Shows diagnostic plot.
+```{r}
+summary(sdm_ldart_step, y.train = occ.df[,"obs"]) 
+#print/plot summary of lbart model
+```
+Project lbart model to plot suitability (+/- confidence intervals). Note this is a bit hacky, converting raster to matrix and then back again.
+```{r}
+env_dat_msk_matrix <- as.matrix(env_dat_msk[[dimnames(sdm_ldart_step$varcount)[[2]]]]) 
+#env data to matrix
+lbart_predmap_CURR <- sum(env_dat_msk[[dimnames(sdm_ldart_step$varcount)[[2]]]], na.rm = FALSE) 
+#make a single raster layer whose values will be replaced by model predictions
+lbart_predmap_CURR <- c(lbart_predmap_CURR, lbart_predmap_CURR, lbart_predmap_CURR) 
+#three layers for mean, upper CI, lower CI
+names(lbart_predmap_CURR) <- c("mean", "lwr", "upr") 
+#rename
+
+lbart_pred_CURR <- predict(sdm_ldart_step, newdata = env_dat_msk_matrix[which(complete.cases(env_dat_msk_matrix)),]) #predict
+
+lbart_predmap_CURR[["mean"]][which(complete.cases(env_dat_msk_matrix))] <- lbart_pred_CURR $prob.test.mean 
+#replace values in mean rast with predictions 
+lbart_predmap_CURR[["lwr"]][which(complete.cases(env_dat_msk_matrix))] <- colQuantiles(lbart_pred_CURR $prob.test, probs = 0.025) 
+#replace values in lower CI rast with predictions 
+lbart_predmap_CURR[["upr"]][which(complete.cases(env_dat_msk_matrix))] <- colQuantiles(lbart_pred_CURR $prob.test, probs = 0.975) 
+#replace values in upper CI rast with predictions 
+
+```
+Repeat above for future climate scenarios. 
+```{r}
+env2100_45_dat_msk_matrix <- as.matrix(env2100_45_dat_msk[[dimnames(sdm_ldart_step$varcount)[[2]]]])        
+lbart_predmap_SSP245 <- sum(env2100_45_dat_msk[[dimnames(sdm_ldart_step$varcount)[[2]]]], na.rm = FALSE)
+lbart_predmap_SSP245 <- c(lbart_predmap_SSP245, lbart_predmap_SSP245, lbart_predmap_SSP245)
+names(lbart_predmap_SSP245) <- c("mean", "lwr", "upr")
+
+lbart_pred_SSP245 <- predict(sdm_ldart_step, newdata = env2100_45_dat_msk_matrix[which(complete.cases(env2100_45_dat_msk_matrix)),])
+
+lbart_predmap_SSP245[["mean"]][which(complete.cases(env2100_45_dat_msk_matrix))] <- lbart_pred_SSP245 $prob.test.mean
+lbart_predmap_SSP245[["lwr"]][which(complete.cases(env2100_45_dat_msk_matrix))] <- colQuantiles(lbart_pred_SSP245 $prob.test, probs = 0.025)
+lbart_predmap_SSP245[["upr"]][which(complete.cases(env2100_45_dat_msk_matrix))] <- colQuantiles(lbart_pred_SSP245 $prob.test, probs = 0.975)
+
+
+env2100_85_dat_msk_matrix <- as.matrix(env2100_85_dat_msk[[dimnames(sdm_ldart_step$varcount)[[2]]]])        
+lbart_predmap_SSP585 <- sum(env2100_85_dat_msk[[dimnames(sdm_ldart_step$varcount)[[2]]]], na.rm = FALSE)
+lbart_predmap_SSP585 <- c(lbart_predmap_SSP585, lbart_predmap_SSP585, lbart_predmap_SSP585)
+names(lbart_predmap_SSP585) <- c("mean", "lwr", "upr")
+
+lbart_pred_SSP585 <- predict(sdm_ldart_step, newdata = env2100_85_dat_msk_matrix[which(complete.cases(env2100_85_dat_msk_matrix)),])
+
+lbart_predmap_SSP585[["mean"]][which(complete.cases(env2100_85_dat_msk_matrix))] <- lbart_pred_SSP585 $prob.test.mean
+lbart_predmap_SSP585[["lwr"]][which(complete.cases(env2100_85_dat_msk_matrix))] <- colQuantiles(lbart_pred_SSP585 $prob.test, probs = 0.025)
+lbart_predmap_SSP585[["upr"]][which(complete.cases(env2100_85_dat_msk_matrix))] <- colQuantiles(lbart_pred_SSP585 $prob.test, probs = 0.975)
+
+```
+Identify cutoff for binarization (maximise TSS).
+```{r}
+lbart_cutoff <- as.numeric(strsplit(capture.output(summary(sdm_ldart_step, y.train = occ.df[,"obs"]))[8], " = ")[[1]][2])
+```
+Plot (central estimate) suitability maps. 
+```{r}
+plot(lbart_predmap_CURR[[1]], range = c(0, 1))
+plot(lbart_predmap_SSP245[[1]], range = c(0, 1))
+plot(lbart_predmap_SSP585[[1]], range = c(0, 1))
+```
+Plot binarised maps. 
+```{r}
+plot(lbart_predmap_CURR[[1]] > lbart_cutoff)
+plot(lbart_predmap_SSP245[[1]] > lbart_cutoff)
+plot(lbart_predmap_SSP585[[1]] > lbart_cutoff)
+```
+Save binarised maps. 
+```{r}
+writeRaster(lbart_predmap_CURR[[1]] > lbart_cutoff, "current.suitability.tif", overwrite=TRUE)
+writeRaster(lbart_predmap_SSP245[[1]] > lbart_cutoff, "SSP245.suitability.tif", overwrite=TRUE)
+writeRaster(lbart_predmap_SSP585[[1]] > lbart_cutoff, "SSP585.suitability.tif", overwrite=TRUE)
+```
+Plot lower and upper confidence interval
+```{r}
+par(mfrow = c(1, 3))  # set up 3 panels side by side
+plot(lbart_predmap_CURR[["lwr"]], main = "Lower CI (2.5%)", zlim = c(0,1))
+plot(lbart_predmap_CURR[["mean"]], main = "Mean Suitability", zlim = c(0,1))
+plot(lbart_predmap_CURR[["upr"]], main = "Upper CI (97.5%)", zlim = c(0,1))
+
+writeRaster(lbart_predmap_CURR[["lwr"]] > lbart_cutoff,
+            filename = "current_lower_binary.tif",
+            overwrite = TRUE)
+writeRaster(lbart_predmap_CURR[["upr"]] > lbart_cutoff,
+            filename = "current_upper_binary.tif",
+            overwrite = TRUE)
+
+par(mfrow = c(1, 3))  # set up 3 panels side by side
+plot(lbart_predmap_SSP245[["lwr"]], main = "Lower CI (2.5%)", zlim = c(0,1))
+plot(lbart_predmap_SSP245[["mean"]], main = "Mean Suitability", zlim = c(0,1))
+plot(lbart_predmap_SSP245[["upr"]], main = "Upper CI (97.5%)", zlim = c(0,1))
+
+writeRaster(lbart_predmap_SSP245[["lwr"]] > lbart_cutoff,
+            filename = "SSP245_lower_binary.tif",
+            overwrite = TRUE)
+writeRaster(lbart_predmap_SSP245[["upr"]] > lbart_cutoff,
+            filename = "SSP245_upper_binary.tif",
+            overwrite = TRUE)
+
+par(mfrow = c(1, 3))  # set up 3 panels side by side
+plot(lbart_predmap_SSP585[["lwr"]], main = "Lower CI (2.5%)", zlim = c(0,1))
+plot(lbart_predmap_SSP585[["mean"]], main = "Mean Suitability", zlim = c(0,1))
+plot(lbart_predmap_SSP585[["upr"]], main = "Upper CI (97.5%)", zlim = c(0,1))
+
+writeRaster(lbart_predmap_SSP585[["lwr"]] > lbart_cutoff,
+            filename = "SSP585_lower_binary.tif",
+            overwrite = TRUE)
+writeRaster(lbart_predmap_SSP585[["upr"]] > lbart_cutoff,
+            filename = "SSP585_upper_binary.tif",
+            overwrite = TRUE)
+```
+Plot relative changes
+```{r}
+change_585 <- ((lbart_predmap_SSP585[["mean"]] - lbart_predmap_CURR[["mean"]]) / 
+                 lbart_predmap_CURR[["mean"]]) * 100
+change_585_abs <- lbart_predmap_SSP585[["mean"]] - lbart_predmap_CURR[["mean"]]
+#mask areas where current suitability is 0
+change_585 <- mask(change_585, lbart_predmap_CURR[["mean"]] > 0, 
+                   maskvalue = FALSE)
+plot(change_585)
+
+writeRaster(change_585, "change_ssp585.tif", overwrite = TRUE)
+```
+Get variable importance. 
+```{r}
+lbart.varimp(sdm_ldart_step)[order(lbart.varimp(sdm_ldart_step)$varimps, decreasing = TRUE),] #variable importance in order
+```
+Partial dependence plots for top 6 most important variables. 
+```{r, warning=FALSE}
+par_SSTmax <- lbart_partial(sdm_ldart_step, occ_dat = occ.df, x.var = "Present.Surface.Temperature.Lt.max",
+                       env_dat_CURR = env_dat_msk_matrix, env_dat_245 = env2100_45_dat_msk_matrix,
+                       env_dat_585 = env2100_85_dat_msk_matrix)
+
+par_Pho <- lbart_partial(sdm_ldart_step, occ_dat = occ.df, x.var = "Present.Surface.Phosphate.Mean",
+                          env_dat_CURR = env_dat_msk_matrix, env_dat_245 = env2100_45_dat_msk_matrix,
+                          env_dat_585 = env2100_85_dat_msk_matrix)
+
+par_oxy <- lbart_partial(sdm_ldart_step, occ_dat = occ.df, x.var = "Present.Surface.Dissolved.oxygen.Mean",
+                         env_dat_CURR = env_dat_msk_matrix, env_dat_245 = env2100_45_dat_msk_matrix,
+                         env_dat_585 = env2100_85_dat_msk_matrix)
+
+par_PAR <- lbart_partial(sdm_ldart_step, occ_dat = occ.df, x.var = "Present.Surface.Par.Mean.asc",
+                          env_dat_CURR = env_dat_msk_matrix, env_dat_245 = env2100_45_dat_msk_matrix,
+                          env_dat_585 = env2100_85_dat_msk_matrix)
+
+par_SSTmean <- lbart_partial(sdm_ldart_step, occ_dat = occ.df, x.var = "Present.Surface.Temperature.Mean",
+                        env_dat_CURR = env_dat_msk_matrix, env_dat_245 = env2100_45_dat_msk_matrix,
+                        env_dat_585 = env2100_85_dat_msk_matrix)
+
+par_ph <- lbart_partial(sdm_ldart_step, occ_dat = occ.df, x.var = "Present.Surface.pH.BOv2_2",
+                             env_dat_CURR = env_dat_msk_matrix, env_dat_245 = env2100_45_dat_msk_matrix,
+                             env_dat_585 = env2100_85_dat_msk_matrix)
+
+ggplot(data = par_SSTmax, aes(x = x, y = y)) + 
+  stat_summary(fun.min = function(x) {
+  quantile(x, 0.25)
+}, fun.max = function(x) {
+  quantile(x, 0.75)
+}, color = NA, geom = "ribbon", na.rm = TRUE, alpha = 0.2) +
+  stat_summary(fun = median, color = "black", geom = "line") +
+  ylab("Response") + scale_x_continuous(expand = c(0, 0)) +
+  xlab("Max sea surface temperature \n(°C)") + geom_point(data = occ.df, inherit.aes = FALSE,
+                                                                                    aes(x = Present.Surface.Temperature.Lt.max, y = 0, col = as.factor(obs)),
+                                                                                    pch = "|", size = 5, show.legend = FALSE, alpha = 0.5) +
+  scale_colour_manual(values = c("darkslategray3", "black")) +
+  theme_few() + 
+  ggplot(data = par_Pho, aes(x = x, y = y)) +
+  stat_summary(fun.min = function(x) {
+    quantile(x, 0.25)
+  }, fun.max = function(x) {
+    quantile(x, 0.75)
+  }, color = NA, geom = "ribbon", na.rm = TRUE, alpha = 0.2) +
+  stat_summary(fun = median, color = "black", geom = "line") +
+  ylab("Response") + scale_x_continuous(expand = c(0, 0)) +
+  xlab("Mean surface phosphate \n(mmol/m³)") + geom_point(data = occ.df,
+                                                      inherit.aes = FALSE, aes(x = Present.Surface.Phosphate.Mean, y = 0, col = as.factor(obs)),
+                                                      pch = "|", size = 5, show.legend = FALSE, alpha = 0.5) +
+  scale_colour_manual(values = c("darkslategray3", "black")) +
+  theme_few() + 
+  ggplot(data = par_oxy, aes(x = x, y = y)) +
+  stat_summary(fun.min = function(x) {
+    quantile(x, 0.25)
+  }, fun.max = function(x) {
+    quantile(x, 0.75)
+  }, color = NA, geom = "ribbon", na.rm = TRUE, alpha = 0.2) +
+  stat_summary(fun = median, color = "black", geom = "line") +
+  ylab("Response") + scale_x_continuous(expand = c(0, 0)) +
+  xlab("Mean surface dissolved oxygen \n(mmol/m³)") + geom_point(data = occ.df,
+                                                                 inherit.aes = FALSE, aes(x = Present.Surface.Dissolved.oxygen.Mean, y = 0, col = as.factor(obs)),
+                                                                                      pch = "|", size = 5, show.legend = FALSE, alpha = 0.5) +
+  scale_colour_manual(values = c("darkslategray3", "black")) +
+  theme_few() + 
+  ggplot(data = par_PAR, aes(x = x, y = y)) +
+  stat_summary(fun.min = function(x) {
+    quantile(x, 0.25)
+  }, fun.max = function(x) {
+    quantile(x, 0.75)
+  }, color = NA, geom = "ribbon", na.rm = TRUE, alpha = 0.2) +
+  stat_summary(fun = median, color = "black", geom = "line") +
+  ylab("Response") + scale_x_continuous(expand = c(0, 0)) +
+  xlab("Mean surface photosynthetically active radiation \n(μmol/m²/s)") + geom_point(data = occ.df,
+                                                          inherit.aes = FALSE, aes(x = Present.Surface.Par.Mean.asc, y = 0, col = as.factor(obs)),
+                                                          pch = "|", size = 5, show.legend = FALSE, alpha = 0.5) +
+  scale_colour_manual(values = c("darkslategray3", "black")) +
+  theme_few() + 
+  ggplot(data = par_SSTmean, aes(x = x, y = y)) +
+  stat_summary(fun.min = function(x) {
+    quantile(x, 0.25)
+  }, fun.max = function(x) {
+    quantile(x, 0.75)
+  }, color = NA, geom = "ribbon", na.rm = TRUE, alpha = 0.2) +
+  stat_summary(fun = median, color = "black", geom = "line") +
+  ylab("Response") + scale_x_continuous(expand = c(0, 0)) +
+  xlab("Mean sea surface temperature \n(°C)") + geom_point(data = occ.df,
+                                                                          inherit.aes = FALSE, aes(x = Present.Surface.Temperature.Mean,
+                                                                                                   y = 0, col = as.factor(obs)), pch = "|", size = 5, show.legend = FALSE,
+                                                                          alpha = 0.5) + scale_colour_manual(values = c("darkslategray3",
+                                                                                                                        "black")) + theme_few() +
+  ggplot(data = par_ph, aes(x = x, y = y)) +
+  stat_summary(fun.min = function(x) {
+    quantile(x, 0.25)
+  }, fun.max = function(x) {
+    quantile(x, 0.75)
+  }, color = NA, geom = "ribbon", na.rm = TRUE, alpha = 0.2) +
+  stat_summary(fun = median, color = "black", geom = "line") +
+  ylab("Response") + scale_x_continuous(expand = c(0, 0)) +
+  xlab("Mean sea surface pH") + geom_point(data = occ.df,
+                                                           inherit.aes = FALSE, aes(x = Present.Surface.pH.BOv2_2,
+                                                                                    y = 0, col = as.factor(obs)), pch = "|", size = 5, show.legend = FALSE,
+                                                           alpha = 0.5) + scale_colour_manual(values = c("darkslategray3",
+                                                                                                         "black")) + theme_few()
+
+```
+
+
