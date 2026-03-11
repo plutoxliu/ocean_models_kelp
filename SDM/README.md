@@ -1,6 +1,6 @@
 # Species Distribution Model for *Macrocystis* in the Southern Hemisphere
 ## Occurance records 
-Contain *M. "pyrifera"*, *M. "integrifolia"* and *M. "angustifolia"* <br>
+Contain *M. "pyrifera"*, *M. "integrifolia"* and *M. "angustifolia"*
 <br><br>
 ## Environmental variables
 ### From Bio-ORACLE database: https://www.bio-oracle.org/index.php
