@@ -37,6 +37,5 @@ Optimised for circumpolar grids (need to fill datagap at 180 degrees).
 Then compile ROMS depending on settings
 Make sure model settings match each other
 <br><br>
-9. Run parcel model with ice conditions (can be done without ROMS run using the original forcing files)
-	- Parcel_ice.py
-	- Parcel_ana.py
+9. Still trouble-shooting: blowup
+    - smooth bathmetry
