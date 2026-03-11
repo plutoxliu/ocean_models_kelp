@@ -23,3 +23,8 @@ Contain *M. "pyrifera"*, *M. "integrifolia"* and *M. "angustifolia"*
 <br><br>
 ### Land mask: https://www.naturalearthdata.com/downloads/10m-physical-vectors/
 ### Antarctic coastline: https://data.bas.ac.uk/full-record.php?id=GB/NERC/BAS/PDC/01391
+## Models run in R
+- Load environmental variables
+- Add intertidal buffer
+- Load occurance records and generate pseudoabsence/background points using spatial thickening
+- Perform Bayesian species distribution modelling using "embarcadero"**https://github.com/cjcarlson/embarcadero**
